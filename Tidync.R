@@ -9,8 +9,8 @@ require(tidync)
 require(DataExplorer)
 require(gridExtra)
 require(gganimate)
-source("Functions.R")
-load("Variables.RData")
+#source("Functions.R")
+#load("Variables.RData")
 # Data Import -------------------------------------------------------------
 
 dirs_all <- system2("ls", args = "*nc", stdout = TRUE)
@@ -33,11 +33,11 @@ hyper_tbl_BIO <- hyper_tibble(Data_MyOcean$BIO_006_008_BIO.nc, na.rm = FALSE) # 
 #             massimo = max(Value, na.rm = TRUE))
 
 p1<-hyper_tbl_BIO %>%
-    filter(depth == hyper_tbl_BIO$depth[1], time == unique(hyper_tbl_BIO$time)[1]) %>%
-    #gather(Variable, Value, ppn:dox) %>%
-    ggplot + aes(x = longitude, y = latitude) +
-    scale_fill_distiller(palette = "RdBu", direction = -1, na.value = "white") + ggthemes::theme_few() +
-    labs(title = paste("Depth =", hyper_tbl_BIO$depth[1])) #+ facet_wrap(~Variable, scales = "free")
+  filter(depth == hyper_tbl_BIO$depth[1], time == unique(hyper_tbl_BIO$time)[1]) %>%
+  #gather(Variable, Value, ppn:dox) %>%
+  ggplot + aes(x = longitude, y = latitude) +
+  scale_fill_distiller(palette = "RdBu", direction = -1, na.value = "white") + ggthemes::theme_few() +
+  labs(title = paste("Depth =", hyper_tbl_BIO$depth[1])) #+ facet_wrap(~Variable, scales = "free")
 grid.arrange(p1 + geom_raster(aes(fill = ppn)), p1 + geom_raster(aes(fill = dox)), nrow = 1)
 
 gganimate(hyper_tbl_BIO %>% 
@@ -45,5 +45,5 @@ gganimate(hyper_tbl_BIO %>%
             ggplot + aes(x = depth, y = dox, frame = time) + geom_point())
 
 gganimate(hyper_tbl_BIO %>% 
-  filter(time %in% unique(hyper_tbl_BIO$time)[1:12]) %>%
-  ggplot + aes(x = depth, y = ppn, frame = time) + geom_point())
+            filter(time %in% unique(hyper_tbl_BIO$time)[1:12]) %>%
+            ggplot + aes(x = depth, y = ppn, frame = time) + geom_point())
