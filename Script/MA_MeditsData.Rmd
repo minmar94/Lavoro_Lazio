@@ -1,0 +1,218 @@
+---
+title: "Multivariate Analysis of Medits Data"
+author: "Marco Mingione"
+date: "20 novembre 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, message = FALSE, warning = FALSE, fig.align = "center")
+```
+
+```{r load_packages}
+require(tidyverse)
+require(magrittr)
+require(lubridate)
+require(ade4)
+require(entropart)
+source("Funzioni.R")
+```
+
+```{r load_data}
+load("Dati Medits/Medits_Join_1994to2017.RData")
+```
+
+# Introduction
+
+**Brief Data Description**
+  
+  - Medits is an yearly survey concerning fishing with trawl nets.
+  - A total of 40 fishing coves are permanently sampled from 1991 to 2017.
+  - A total of 432 different species are caught, including seleans, teleosts, cephalopods, shellfishes and benthos.
+  - The response variable is the relative abundance of each single species expressed $KG/KM^2$ for each cove and year.
+  - Other recorded variables are the coordinates of the cove, the depth of the cove, the temperature of the cove, the faunistic category of the species, etc.
+  - The structure of the dataset is reported below:
+  
+```{r show_data}
+medits_ALL %>% glimpse
+```
+
+**Main objective of the analysis**
+
+This study mainly aims at responding to the following questions:
+
+  - Did the metacommunity structure change over space and time?
+  - If yes, how did it change? 
+  - On what depend these changes?
+  - Is it possible to classify (in order to reduce the complexity) the species into abundance categories?
+  
+**Data preparation**
+  
+  - Benthos is excluded from the analysis $\longrightarrow$ 323 species left
+  - If a combination of species-year-cove is not available, it is manually recorded and the relative abundance index is set to 0
+  - The (completed) dataset has therefore $323\times 40\times 24$ rows
+  - Coves are classified according to their depth. Depth classes are built as follows:
+      - Costa = [0m, 130m); Bordo = [130m, 200m); Scarpata = [200m, 750m).
+      
+```{r MC_evolution}
+# Rimuovo il Benthos
+# Aggiungo le classi di profondità
+medits_ALL %<>% filter(FAUNISTIC_CATEGORY %in% c("Ae", "Ao", "B", "C")) %>% 
+  mutate(DEPTH_CLASS = cut(as.numeric(SHOOTING_DEPTH), 
+                                         breaks = c(0, 130, 200, +Inf),
+                                         labels = c("Costa", "Bordo", "Scarpata")))
+medits_ALL$DEPTH_CLASS[medits_ALL$HAUL_NUMBER == 27] <- "Bordo"
+# data_mc_gif <- medits_ALL %>% 
+#   filter(FAUNISTIC_CATEGORY %in% c("Ae", "Ao", "B", "C")) %>% 
+#   mutate(N_KM = ifelse(N_KM == 0, NA, N_KM),
+#          KG_KM = ifelse(KG_KM == 0, NA, KG_KM)) %>%
+#   arrange(FAUNISTIC_CATEGORY)
+# p <- data_mc_gif %>% #filter(YEAR == 2000) %>% 
+#   ggplot(aes(x = droplevels(factor(HAUL_NUMBER)), y = SPECIE, fill = log1p(KG_KM), frame = YEAR)) + 
+#   geom_raster() + 
+#   scale_fill_distiller(palette = "Blues", na.value = "white", direction = 1) +
+#   scale_y_discrete(limits = unique(data_mc_gif$SPECIE)) +
+#   labs(x = "Haul", y = "Specie") +
+#   ggthemes::theme_few() +
+#   theme(axis.text.y = element_text(size = 4), 
+#         axis.text.x =  element_text(size = 6), 
+#         legend.position = "none")
+
+#gganimate::gganimate(p, filename = "GIF/MetaCommunity_9417.gif")
+```
+
+# Entropart
+**Biodiversity Partitioning**
+
+In ecology, $\gamma$-diversity is a common indicator used to estimate the diversity (or entropy) of an habitat ( [R. H. Whittaker (1960)](https://www.jstor.org/stable/pdf/1943563.pdf) ). The main idea is that the diversity can be decomposed into two terms: the diversity at a local scale (i.e. at the single cove), called $\alpha$-diversity and the diversity between these coves, called $\beta$-diversity. These two components are independent, thus the $\gamma$-diversity can be expressed ad $\gamma = \alpha \times \beta$ ( _Biodiversity Partitioning_ ). The term diversity can be used alternatively to the term entropy, the latter being a monotone transformation of the former. To this purpose, [Marcon et al.(2014)](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0090289) proposed the Tsallis generalized entropy, defined as follows:
+
+$$H_{\gamma}^q = \frac{1 - \sum_s p_s^q}{q-1} = ln_q D_{\gamma}^q$$
+where $q \in \mathbb{R}$ is a sort of shrinkage parameter and $p_s$ is the proportion of the species $s$ over the all coves.
+
+The time series of the $\gamma$-entropy is reported below for 4 different values of $q$, corresponding to the most widely known entropy indeces.
+
+```{r data_clean_entropart}
+# Creo e calcolo i valori degli indici di biodiversità per le metacomunità annuali
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = F, fau_label = NULL, 
+                                      index = "KG_KM")
+Weights_list <- map(mat_entropart, colSums)
+MC_allyears <- map2(mat_entropart, Weights_list,MetaCommunity_mine)
+
+# Plot delle diversità per 4 diversi valori di q nel tempo
+Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+```
+
+These plots show that the overall entropy of the system did not change much over time, regardless the choice of $q$.
+
+The following plots show the trend of the diversity as a variation of $q$ for each year and biodiversity index.
+
+```{r alpha_comm, fig.height=8, fig.width=14, cache = TRUE}
+# Diversity Profiling for all years
+profile_list <- list()
+for(i in names(MC_allyears)){
+  profile_list[[i]] <- DivProfile(q.seq = seq(0,2,0.1), MC = MC_allyears[[i]],
+                                  Biased = TRUE, Correction = "Best")
+}
+### Alpha Communities
+data_profile <- profile_list %>% map(`[[` ,"CommunityAlphaDiversities") %>%
+  map(as_tibble)
+
+len <- data_profile %>% map(ncol)
+q_list <- replicate(max(medits_ALL$YEAR) - min(medits_ALL$YEAR) +1,
+                    seq(0,2, by = 0.1), simplify = FALSE) %>% map2(., len, rep)
+
+data_profile <- data_profile %>%
+  map(gather, "key", "value")  %>%
+  map2(., names(len), mutate) %>%
+  map2(., q_list, mutate) %>%
+  map(set_colnames, c("Haul", "Alphadiv", "Year", "q")) %>%
+  Reduce(f = "bind_rows", x = .)
+data_profile %>%
+  ggplot + geom_line(aes(x = q, y = Alphadiv, colour = Haul)) + facet_wrap(~Year) +
+  labs(x = "q", y = "Alpha diversity", title = "Alpha diversity of communities") +
+  theme_bw() + theme(legend.position = "none")
+```
+
+```{r total_dive, fig.height=20, fig.width=15, cache = TRUE}
+# Total alpha, beta e gamma diversity
+Total_div <- bind_rows(Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"TotalAlphaDiversity")) %>% as_tibble() %>% 
+                         set_colnames(unique(medits_ALL$YEAR)) %>% 
+                         gather(., "Year", "Diversity") %>% mutate(Type = "Alpha"),
+                       Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"TotalBetaDiversity")) %>% as_tibble() %>% 
+                         set_colnames(unique(medits_ALL$YEAR)) %>%
+                         gather(., "Year", "Diversity") %>% mutate(Type = "Beta"),
+                       Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"GammaDiversity")) %>% as_tibble() %>% 
+                         set_colnames(unique(medits_ALL$YEAR)) %>% 
+                         gather(., "Year", "Diversity") %>% mutate(Type = "Gamma")) %>%
+  mutate(q = rep(seq(0,2, by = 0.1), length(unique(medits_ALL$YEAR))*3))
+
+p <- list()
+for(j in c("Alpha", "Beta", "Gamma")){
+  #name <- paste("Immagini/Total", j, "byYear", ".pdf", sep = "")
+  #pdf(name, height = 8, width = 15)
+  p[[j]] <- Total_div %>% filter(Type == j) %>% mutate(Diversity = log(Diversity)) %>% 
+    ggplot + aes(x = q, y = Diversity) + geom_line() + geom_point() +
+    facet_wrap(~Year) +
+    labs(x = "q", y = "Entropy", title = paste("Total", j)) + 
+    theme_bw() 
+  #print(p)
+  #dev.off()
+}
+
+gridExtra::marrangeGrob(grobs = list(p$Alpha,p$Beta,p$Gamma), nrow = 3, ncol = 1)
+```
+
+# Ade4
+**Multivariate Analysis**
+
+$\texttt{Ade4}$ is an $\texttt{R}$ package which contains **D**ata **A**nalysis functions to analyse **E**cological and **E**nvironmental data in the framework of **E**uclidean **E**xploratory methods. 
+
+The _Principal Component Analysis_ (PCA) is calculated for each yearly abundance matrix (40 sites x 323 species).
+```{r PCA}
+pca_bymat <- mat_entropart %>% map(dudi.pca, scannf = F, nf = 2)
+```
+
+
+```{r ktable_specie}
+Ktable_pca <- ktab.list.dudi(map(pca_bymat,t))
+statis1 <- statis(Ktable_pca, scannf = FALSE)
+fac_haul <- factor(medits_ALL %>% distinct(HAUL_NUMBER, DEPTH_CLASS) %>% na.omit() %$% 
+                     DEPTH_CLASS[order(HAUL_NUMBER)])
+fac_spec <- factor(medits_ALL %>% distinct(SPECIE, FAUNISTIC_CATEGORY) %$% 
+                     FAUNISTIC_CATEGORY[order(SPECIE)])
+```
+
+```{r pca_rep_specie, fig.height=5, fig.width=13}
+p1 <- statis1$C.li %>% ggplot +
+  geom_point(aes(x = C1, y = C2, colour = fac_spec, fill = fac_spec)) +
+  #geom_label(aes(x = C1, y = C2, fill = fac_spec, label = rownames(statis1$C.li)), size = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed") + #labs(title = yy) +
+  geom_hline(yintercept = 0, linetype = "dashed") + labs(title = "Compromise") + theme_bw()
+p2 <- ggplot(data = data_frame(X = statis1$RV.tabw, Y = statis1$cos2, label = statis1$tab.names)) +
+  geom_label(aes(x = X, y = Y, label = label), size = 3) + 
+  labs(x = "Table weights", y = "Cos2") +
+  theme_bw()
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+```{r statis_sites}
+Ktable_pca <- ktab.list.dudi(pca_bymat)
+statis1 <- statis(Ktable_pca, scannf = FALSE) 
+```
+
+```{r Ktable_site, fig.height=5, fig.width=13}
+p1 <- statis1$C.li %>% ggplot +
+  geom_point(aes(x = C1, y = C2, colour = fac_haul, fill = fac_haul)) +
+  #geom_label(aes(x = C1, y = C2, fill = fac_haul, label = rownames(statis1$C.li)), size = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed") + #labs(title = yy) +
+  geom_hline(yintercept = 0, linetype = "dashed") + labs(title = "Compromise") + theme_bw()
+p2 <- ggplot(data = data_frame(X = statis1$RV.tabw, Y = statis1$cos2, label = statis1$tab.names)) +
+  geom_label(aes(x = X, y = Y, label = label), size = 3) + 
+  labs(x = "Table weights", y = "Cos2") +
+  theme_bw()
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+

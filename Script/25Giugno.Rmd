@@ -1,0 +1,244 @@
+---
+title: "EDA - Fase 2"
+author: "Marco"
+date: "10 luglio 2018"
+output: 
+  html_document:
+    css: style.css
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", warning = FALSE, message = FALSE, cache = FALSE, echo = FALSE)
+```
+
+```{r, cache = FALSE}
+# Riunione 25 Giugno ------------------------------------------------------
+# Load packages
+require(tidyverse)
+require(magrittr)
+require(entropart)
+require(summarytools)
+require(entropart)
+require(magick)
+require(ggmap)
+require(labstatR)
+#require(emojifont)
+source("Funzioni.R")
+```
+
+```{r load_data}
+# Load Data
+medits_ALL <- read.csv("Dati Medits/Medits_Join.csv", header = TRUE, sep = ",") %>%
+  as_tibble() #%>% filter(FAUNISTIC_CATEGORY %in% c("Ae", "Ao", "B", "C"))
+```
+
+
+```{r}
+# Contare quante volte una specie è stata pescata in totale e ogni anno per vedere le specie rare
+# medits_ALL %>%
+#   #filter(!is.na(TOTAL_NUMBER_IN_HAUL)) %>%
+#   #mutate(TOTAL_NUMBER_IN_HAUL = ifelse(is.na(TOTAL_NUMBER_IN_HAUL), 0, TOTAL_NUMBER_IN_HAUL)) %>%
+#   group_by(SPECIE) %>%
+#   summarise(ss = sum(TOTAL_NUMBER_IN_HAUL)) %>% ungroup() %>% #arrange(ss)
+#   filter(ss <= 5)
+
+```
+
+
+## Classificazione della profondità
+- Costa = [0m, 130m); Bordo = [130m, 200m); Scarpata = [200m, 750m).
+
+```{r costa, cache = FALSE}
+medits_ALL %<>% mutate(DEPTH_CLASS = cut(SHOOTING_DEPTH, breaks = c(0, 130, 200, 750),
+                                         labels = c("Costa", "Bordo", "Scarpata")))
+```
+
+Visualizziamo l'andamento nel tempo del totale delle specie pescate su ogni sito. La grandezza dei pallini è proporzionale al numero di specie, mentre il colore distingue per profondità.
+
+```{r bubbplot}
+# Lazio <- get_map(c(10.5,40.5,14,43), maptype = "watercolor", source = "stamen")
+# # Bubble Plot: size prop to number of caught species, color distinguishing by depth class
+# data_p <- medits_ALL %>%
+#   filter(KG_KM !=0) %>%
+#   group_by(HAUL_NUMBER, YEAR) %>%
+#   mutate(n = length(unique(SPECIE))) %>% ungroup()
+# p <- ggmap(Lazio) + geom_point(data = data_p, aes(x = X, y = Y, frame = YEAR,size = n, color = DEPTH_CLASS)) +
+#   # geom_text(data = medits_ALL, aes(label = emoji("tropical_fish")),
+#   #           colour = DEPTH_CLASS, family = "EmojiOne", size = n) +
+#   scale_color_manual(values = c("tan3","seagreen3","darkblue")) +
+#   theme_bw() 
+# gganimate::gganimate(p, filename = "GIF/Bubble_plot.gif", interval = 3)
+# rm(p)
+
+# img <- image_graph(450, 450, res = 96)
+# data_plot <- medits_ALL %>%
+#   filter(KG_KM !=0) %>%
+#   group_by(HAUL_NUMBER, YEAR) %>%
+#   mutate(n = length(unique(SPECIE))) %>% ungroup()
+# datalist <- split(data_plot, data_plot$YEAR)
+# out <- lapply(datalist, function(data){
+#   p <- data %>% ggplot(aes(x = X, y = Y, size = n, color = DEPTH_CLASS)) +
+#   geom_point() +
+#   theme_minimal() + ggtitle(data$YEAR) + theme_bw()
+#   print(p)
+# })
+# dev.off()
+# animation <- image_animate(img, fps = 0.5)
+# image_write(animation, "Bubble_plot.gif")
+```
+
+<p align="center">
+  <img src="GIF/Bubble_plot.gif" width="500" height="350">
+</p>
+
+Di seguito vengono riportate alcune statistiche descrittive relative al numero di specie pescate, distinguendo per classe di profondità. 
+
+```{r}
+
+# require(plot3D)
+# require(scatterplot3d)
+# data_3d <- medits_ALL %>% filter(YEAR == 1999) %>% 
+#                 group_by(X,Y,SHOOTING_DEPTH, DEPTH_CLASS) %>% 
+#                 summarise(ss = sum(TOTAL_NUMBER_IN_HAUL))
+# scatterplot3d(data_3d$X, data_3d$Y, data_3d$SHOOTING_DEPTH, color = c("tan3","seagreen3","darkblue")[data_3d$DEPTH_CLASS],
+#               pch = 20, angle = 120, cex.symbols = data_3d$ss/max(data_3d$ss))
+
+```
+
+
+```{r tab}
+# summary
+medits_ALL %>%
+  filter(KG_KM !=0) %>%
+  group_by(HAUL_NUMBER, YEAR) %>%
+  mutate(Value = length(unique(SPECIE))) %>%
+  group_by(DEPTH_CLASS) %>%
+  do_table_stats() %>% 
+  knitr::kable(format = "html", align = "c", digits = 2) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+```
+
+Visualizziamo il numero di specie diverse per specie faunistica
+```{r}
+map(by(medits_ALL$SPECIE, medits_ALL$FAUNISTIC_CATEGORY, unique), length) %>% unlist %>% t() %>%
+  knitr::kable(format = "html", align = "c", digits = 2) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+```
+
+
+```{r metacommunity}
+# Entropart per tutti gli anni (con KG_KM)
+# pdf("Diversity_years_byF.pdf", width = 10, height = 8)
+# for(ff in c("Ae", "Ao", "B", "C", "Dmg")){
+#   # Creo una lista in cui ogni elemento è la matrice della MC in un dato anno
+# mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = T, fau_label = ff, 
+#                                       index = "TOTAL_NUMBER_IN_HAUL")
+# Weights_list <- map(mat_entropart, colSums)
+# # lapply(Weights_list, function(x) {
+# #   x[x == 0] <- 0.1
+# #   return(x)})
+# # Metacommunities for all the years
+# MC_allyears <- map2(mat_entropart, Weights_list,MetaCommunity_mine)
+# p <- Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T) + ggtitle(ff)
+# print(p)
+# }
+# dev.off()
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = F, fau_label = NULL, 
+                                      index = "TOTAL_NUMBER_IN_HAUL")
+Weights_list <- map(mat_entropart, colSums)
+# lapply(Weights_list, function(x) {
+#   x[x == 0] <- 0.1
+#   return(x)})
+# Metacommunities for all the years
+MC_allyears <- map2(mat_entropart, Weights_list,MetaCommunity_mine)
+
+```
+
+
+## Entropart
+
+Visualizziamo l'andamento dell'indice di diversità/entropia nel tempo al variare di q.
+
+```{r diversity}
+Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+#Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+
+```
+
+Visualizziamo, per ogni anno, il profilo di diversità delle meta-comunità. $\texttt{Diversity()}$ calcola il valore dei singoli indici al variare di q. Si ricorda che:
+
+    - l'$\alpha$-diversità rappresenta il numero effettivo di specie in una data comunità
+  - la $\beta$-diversità rappresenta il numero effettivo di comunità
+  - la $\gamma$-diversità rappresenta il numero effettivo di specie totali
+
+```{r plot_profile}
+# Diversity Profiling for all years
+profile_list <- list()
+for(i in names(MC_allyears)){
+  profile_list[[i]] <- DivProfile(q.seq = seq(0,3,0.1), MC = MC_allyears[[i]],
+                                  Biased = TRUE, Correction = "Best")
+}
+
+data_profile <- profile_list %>% map(`[[` ,"CommunityAlphaDiversities") %>%
+  map(as_tibble)
+
+len <- data_profile %>% map(ncol)
+q_list <- replicate(21, seq(0,3,0.1), simplify = FALSE) %>% map2(., len, rep)
+
+data_profile <- data_profile %>%
+  map(gather, "key", "value")  %>%
+  map2(., names(len), mutate) %>%
+  map2(., q_list, mutate) %>%
+  map(set_colnames, c("Haul", "Alphadiv", "Year", "q")) %>%
+  Reduce(f = "bind_rows", x = .)
+
+img <- image_graph(500, 240)
+datalist <- split(data_profile, data_profile$Year)
+out <- lapply(datalist, function(data){
+  p <- data %>%
+  ggplot + geom_line(aes(x = q, y = Alphadiv, colour = Haul)) +
+  labs(x = "q", y = "Alpha diversity", title = "Alpha diversity of communities") +
+  theme_bw() + ggtitle(data$Year) + theme(legend.position = "none")
+  print(p)
+})
+dev.off()
+animation <- image_animate(img, fps = 0.5)
+image_write(animation, "GIF/Alpha_comm.gif")
+```
+
+```{r gif3}
+Total_div <- bind_rows(Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"TotalAlphaDiversity")) %>% as_tibble() %>% 
+            set_colnames(1994:2014) %>% gather(., "Year", "Diversity") %>% mutate(Type = "Alpha"),
+          Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"TotalBetaDiversity")) %>% as_tibble() %>% 
+            set_colnames(1994:2014) %>% gather(., "Year", "Diversity") %>% mutate(Type = "Beta"),
+          Reduce(f = "cbind", x = profile_list %>% map(`[[` ,"GammaDiversity")) %>% as_tibble() %>% 
+            set_colnames(1994:2014) %>% gather(., "Year", "Diversity") %>% mutate(Type = "Gamma")) %>%
+  mutate(q = rep(seq(0,3,0.1), 21*3))
+# p3 <- Total_div %>%
+#   ggplot + geom_line(aes(x = q, y = Diversity, frame = Year)) + 
+#   facet_wrap(~Type, nrow = 1, scales = "free_y") + theme_bw()
+# gganimate::gganimate(p3, filename = "Total_div.gif", interval = 3)
+# pdf("Profiling_years.pdf")
+# map(profile_list, plot)
+# dev.off()
+img <- image_graph(350, 340)
+datalist <- split(Total_div, Total_div$Year)
+out <- lapply(datalist, function(data){
+  p <- data %>% ggplot + geom_line(aes(x = q, y = Diversity)) + 
+  facet_wrap(~Type, nrow = 1, scales = "free_y") + ggtitle(data$Year) + theme_bw()
+  print(p)
+})
+dev.off()
+animation <- image_animate(img, fps = 0.5)
+image_write(animation, "GIF/Total_div.gif")
+```
+
+<p align="center">
+  <img src="GIF/Total_div.gif">
+  <img src="GIF/Alpha_comm.gif">
+</p>
+
+<!-- <p align="center"> -->
+
+<!-- </p> -->

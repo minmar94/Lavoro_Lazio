@@ -1,0 +1,286 @@
+---
+title: "Analisi esplorativa dei Dati Medits"
+author: "Marco Mingione"
+date: "24 luglio 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = "center", warning = FALSE, message = FALSE, cache = TRUE, echo = FALSE)
+```
+
+```{r packages, cache = F}
+# Load packages
+require(tidyverse)
+require(magrittr)
+require(entropart)
+require(summarytools)
+require(ggmap)
+require(labstatR)
+require(emojifont)
+require(magick)
+source("Funzioni.R")
+
+```
+
+# I dati
+
+```{r load_data}
+# Load Data
+medits_ALL <- read.csv("Dati Medits/Medits_Join.csv", header = TRUE, sep = ",") %>%
+  as_tibble() %>% mutate(DEPTH_CLASS = cut(SHOOTING_DEPTH, breaks = c(0, 130, 200, 750),
+                                         labels = c("Costa", "Bordo", "Scarpata")))
+#write_delim(medits_ALL, delim = ",", path = "Dati Medits/Medits_Join.csv")
+```
+
+Questo studio riguarda l'analisi di dati provenienti dal [Medits](http://www.sibm.it/SITO%20MEDITS/principaleprogramme.htm), un’indagine campionaria annuale basata sulla pesca con reti a strascico. La variabile risposta è multivariata e rappresenta la produzione di biomassa espressa attraverso indici relativi di abbondanza ($Kg/Km^2$) o densità ($N/Km^2$). L'obiettivo dell'analisi è capire come e se la struttura di comunità della fauna ittica di interesse commerciale (inclusi molluschi e crostacei) lungo la costa del Lazio sia cambiata nel tempo e nello spazio, in funzione di caratteristiche sia fisiche che biologiche dell'ambiente. Attualmente il dataset si compone di circa `r nrow(medits_ALL)` righe e `r ncol(medits_ALL)` colonne. I dati riguardano il pescato di `r length(levels(medits_ALL$SPECIE))` differenti specie di pesci appartenenti a `r length(levels(medits_ALL$FAUNISTIC_CATEGORY))` diverse categorie faunistiche dal 
+`r min(medits_ALL$YEAR, na.rm = T)` al `r max(medits_ALL$YEAR, na.rm = T)` in 
+`r length(unique(medits_ALL$HAUL_NUMBER))` diverse stazioni di pesca dal 1994 al 2001, solo 40 dal 2002 al 2014.  
+
+
+```{r dataset}
+# head(medits_ALL)[,1:9] %>% DT::datatable(class = 'cell-border stripe', rownames = F, filter = "top")
+# head(medits_ALL)[,10:18] %>% DT::datatable(class = 'cell-border stripe', rownames = F, filter = "top")
+
+```
+
+```{r dowload_map}
+Lazio <- get_map(c(10.5,40.5,14,43), maptype = "watercolor", source = "stamen")
+```
+
+```{r map}
+d <- medits_ALL %>% group_by(HAUL_NUMBER) %>% summarise(X_avg = mean(X, na.rm = T), Y_avg = mean(Y, na.rm = T)) %>%
+  mutate(fac = ifelse(unique(medits_ALL$HAUL_NUMBER) %in% c(medits_ALL %>% distinct(HAUL_NUMBER, YEAR) %>% 
+                   group_by(HAUL_NUMBER) %>% count() %>%
+                   filter(n!=21) %$% HAUL_NUMBER), "A", "B"))
+svg("Immagini/Lazio_sites.svg", width = 12, height = 6, pointsize = 14)
+Lazio %>% ggmap() + 
+  # geom_point(data = medits_ALL %>% group_by(HAUL_NUMBER) %>% 
+  #              summarise(X_avg = mean(X, na.rm = T), Y_avg = mean(Y, na.rm = T)), 
+  #            aes(x = X_avg, y = Y_avg, shape = "c", colour = factor(HAUL_NUMBER)),
+  #                              size = 2) +
+  geom_text(data = d, aes(x = X_avg, y = Y_avg, color = fac, label = emoji("tropical_fish")),
+             family = "EmojiOne", size = 5) + labs(x = "Longitude", y = "Latitude") +
+  scale_color_manual(values = c("firebrick", "black")) +
+  theme(legend.position = "none")
+#print(p)
+invisible(dev.off())
+
+```
+
+<center><iframe width="800" height="400" src="Immagini/Lazio_sites.svg" allowfullscreen></iframe></center>
+
+Nella mappa si localizzano le 46 stazioni di pesca nell'area di mare campionata. Le stazioni in rosso sono le 6 presenti dal 1994 al 2001, le altre in nero sono quelle presenti per tutto il periodo di osservazione.
+
+## Statistiche descrittive
+<!-- Gli indici di biomassa sono delle realizzazioni di un processo stocastico spazio-temporale $Y(s, t)$ in cui la dimensione spaziale giace in $\mathbb{R}^3$ (i.e. longitudine, latitudine e profondità).  -->
+
+```{r magick}
+data_plot <- medits_ALL %>%
+  #filter(KG_KM !=0) %>%
+  group_by(HAUL_NUMBER, YEAR) %>%
+  mutate(KG_KM_TOT = sum(KG_KM)) %>% ungroup() %>% distinct(HAUL_NUMBER, YEAR, X, Y, KG_KM_TOT, DEPTH_CLASS)
+p <- ggmap(Lazio) + geom_point(data = data_plot, aes(x = X, y = Y, frame = YEAR,size = KG_KM_TOT, color = DEPTH_CLASS)) +
+  scale_color_manual(values = c("tan3","yellow","darkblue")) + labs(x = "Longitude", y = "Latitude") +
+  theme_bw()
+gganimate::gganimate(p, filename = "GIF/Bubble_plot_KGKM.gif", interval = 3)
+rm(p)
+```
+
+Per ogni cala ed anno, si calcola la biomassa totale, distinguendo tra classi di profondità. 
+La grandezza dei pallini è proporzionale alla biomassa totale. Le classi di profondità sono le seguenti :
+  
+    - Costa = [0m, 130m); Bordo = [130m, 200m); Scarpata = [200m, 750m).
+
+<p align="center">
+  <img src="GIF/Bubble_plot_KGKM.gif" width="500" height="350">
+</p>
+
+Dal grafico non si evidenziano pattern specifici della biomassa né rispetto al tempo, né rispetto allo spazio (sebbene questo vada ulteriormente approfondito in una seconda fase). Risulta invece che al Bordo, la biomassa media sia maggiore rispetto alle altre due classi di profondità, come confermato dalla seguente tabella, in cui si riportano alcune statistiche descrittive relative alla biomassa totale per classe di profondità.
+
+```{r tab2}
+medits_ALL %>%
+  #filter(KG_KM !=0) %>%
+  group_by(HAUL_NUMBER, YEAR) %>%
+  mutate(Value = sum(KG_KM)) %>% ungroup() %>%
+  group_by(DEPTH_CLASS) %>%
+  do_table_stats() %>% 
+  #mutate(Tot = map_dbl(by(medits_ALL$HAUL_NUMBER, medits_ALL$DEPTH_CLASS, unique), length)) %>%
+  knitr::kable(format = "html", align = "c", digits = 2) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+```
+
+
+Inoltre, è interessante capire in che misura ogni categoria faunistica impatti sulla struttura della comunità: di seguito, si riporta il numero di specie diverse pescate per categoria faunistica. 
+
+```{r tab1}
+map_dbl(by(medits_ALL$SPECIE, medits_ALL$FAUNISTIC_CATEGORY, unique), length) %>% sort(decreasing = T) %>% t() %>%
+  knitr::kable(format = "html", align = "c", digits = 2) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F, position = "center")
+
+```
+
+Le prime 4 categorie con più specie appartengono rispettivamente a pesci teleostei (Ao), crostacei (B), cefalopodi (C) e  pesci selaci (Ae), le restanti rappresentano il benthos.
+
+Per quantificare l'impatto di queste categorie sulla composizione della biomassa, si calcolano i totali per categoria faunistica ed anno su tutte le cale e si visualizzano i risultati nel grafico seguente. 
+
+```{r}
+data_heat <- medits_ALL %>% group_by(FAUNISTIC_CATEGORY, YEAR) %>%
+  summarise(Total = sum(KG_KM), log_Total = log(Total +1)) %>% arrange(FAUNISTIC_CATEGORY) %>% ungroup()
+
+data_heat %>% 
+  mutate(log_Total = ifelse(log_Total == 0, NA, log_Total)) %>%
+  ggplot + geom_tile(aes(x = factor(YEAR), y = FAUNISTIC_CATEGORY, fill = log_Total)) +
+  labs(x = "Anno", y = "Categoria faunistica") + 
+  scale_fill_distiller(name = "", palette = "Blues", na.value = "grey", 
+                       direction = 1, limits = c(0, 10)) + theme_bw() + 
+  theme(axis.text.x = element_text(size = 6))
+# htmlwidgets::saveWidget(plotly::ggplotly(p, dynamicTicks = T), 
+                        # file = "/home/marco/Università/Lavoro Lazio/GIF/heatmap.html", selfcontained = F)
+```
+
+<!-- <iframe src="GIF/heatmap.html" width="600" height="600" allowfullscreen></iframe> -->
+
+Sia x la biomassa totale, nel grafico il colore è proporzionale al log(x+1), cioè più scuro è il colore, maggiore è la biomassa totale pescata in quell'anno per quella categoria faunistica. In grigio si evidenziano gli anni e le categorie con biomassa totale pari a 0 (categorie perlopiù appartenenti al benthos). 
+
+# Entropart
+
+In questa prima fase dell'analisi si vuole cercare di ridurre il numero di categorie della variabile risposta, i.e. distinguere tra specie abbondanti, meno abbondanti e rare. Tipicamente, in ecologia si utilizza la $\gamma$-diversità per indicare la diversità totale di ambienti/comunità/aree ( [R. H. Whittaker (1960)](https://www.jstor.org/stable/pdf/1943563.pdf) ). L'idea è che questa diversità sia determinata da due componenti: la diversità media in siti o habitat a una scala più locale ($\alpha$-diversità) e la differenziazione tra quegli habitat ($\beta$-diversità). Secondo questo ragionamento, le diversità alfa e beta costituiscono componenti indipendenti della $\gamma$-diversità, esprimibile dunque come $\gamma = \alpha \times \beta$ ( _Biodiversity Partitioning_ ). In questo contesto si parlerà di diversità, ed in modo equivalente di  entropia, essendo quest’ultima una trasformata monotona della prima. A riguardo, [Marcon et al.(2014)](http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0090289) suggeriscono l'utilizzo dell'entropia di Tsallis generalizzata per il calcolo della diversità. La $\beta$-diversità è ottenuta di solito come differenza tra $\gamma$- e $\alpha$-diversità.
+
+La $\gamma$-entropia di Tsallis di ordine $q$ è definita come: 
+$$H_{\gamma}^q = \frac{1 - \sum_s p_s^q}{q-1} = ln_q D_{\gamma}^q$$
+Ne segue che la $\gamma$-diversità di Tsallis di ordine $q$ risulta pari a:
+$$D_{\gamma}^q = \left(\sum_{s} p_s^q\right)^{\frac{1}{1-q}} = \left(1 - (q-1) H_{\gamma}^q\right)^{\frac{1}{1-q}}$$
+Equivalentemente si definisce l'$\alpha$-entropia di Tsallis di ordine $q$ per il sito i-mo come:
+$$H_{\alpha_i}^q = \frac{1 - \sum_s p_{si}^q}{q-1}$$
+Infine, si definisce l$\alpha$-entropia di Tsallis di ordine $q$ totale come media pesata delle entropie locali:
+$$H_{\alpha}^q = \sum_i w_i H_{\alpha_i}^q$$
+Le quantità in gioco nel calcolo di questi indici sono le seguenti:
+
+    - $N \rightarrow$ Totale degli individui nell'intera area.
+  - $N_{si} \rightarrow$ Totale degli individui della specie s-ma nel sito i-mo.
+  - $N_i = \sum_s N_{si} \rightarrow$ Totale degli individui nel sito i-mo.
+  - $N_s = \sum_i N_{si} \rightarrow$ Totale degli individui della specie s-ma.
+  - $p_{si} = \frac{N_{si}}{N} \rightarrow$ Proporzione degli individui della specie s-ma nel sito i-mo.
+  - $p_i = \sum_s p_{si} \rightarrow$ Proporzione degli individui nel sito i-mo.
+  - $p_s = \sum_i p_{si} \rightarrow$ Proporzione degli individui della specie s-ma.
+
+Il calcolo di questi indici è generalizzabile a qualsiasi quantità diversa dal numero totale di specie campionate. Infatti, le analisi che seguono si riferiscono alla biomassa totale intesa come abbondanza.
+Viene visualizzato l'andamento nel tempo della $\gamma$-diversità di Tsallis al variare di $q$ per l'intera comunità.
+
+```{r MC_diversity}
+
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = F, fau_label = NULL, 
+                                      index = "KG_KM")
+#save(mat_entropart, file = "mat_entropart.RData")
+Weights_list <- map(mat_entropart, colSums)
+MC_allyears <- map2(mat_entropart, Weights_list, MetaCommunity_mine)
+p <- Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+htmlwidgets::saveWidget(plotly::ggplotly(p, dynamicTicks = T), 
+                        file = "/home/marco/Università/Lavoro Lazio/GIF/Overall.html", selfcontained = T)
+```
+
+<iframe src="GIF/Overall.html" width="900" height="500" allowfullscreen></iframe>
+
+```{r prof_over}
+img <- profile_def(MC_allyears)
+image_write(image_animate(img, fps = 0.5), path = "/home/marco/Università/Lavoro Lazio/GIF/Overall.gif")
+```
+
+Nel grafico seguente si visualizza invece il profilo di diversità (alpha, beta e gamma) della comunità nel tempo, in funzione della variazione (quasi) continua di $q$.
+
+<p align="center">
+  <img src="GIF/Overall.gif" width="500" height="550">
+</p>
+
+I profili alpha e gamma risultano stabili nel tempo e decrescono al crescere di $q$. Il profilo beta, in alcuni anni, ha un comportamento differente. In generale, all'aumentare dell'ordine $q$ si dovrebbe verificare una diminuzione della diversità, in quanto le specie rare "pesano" meno nel determinare la composizione della comunità. Quello che si evince dal profilo beta è che in alcuni anni, quando si eliminano le specie rare, i siti (habitat locali) tendoni maggiormente a differenziarsi.
+
+
+Per completezza, l'andamento della $\gamma$-diversità nel tempo viene visualizzato per 3 categorie faunistiche: pesci teleostei e selaci (Ao + Ae), crostacei (B) e cefalopodi (C).
+
+### Pesci teleostei e selaci
+```{r AoAe}
+
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = T, fau_label = c("Ao","Ae"), 
+                                      index = "KG_KM")
+Weights_list <- map(mat_entropart, colSums)
+MC_allyears <- map2(mat_entropart, Weights_list, MetaCommunity_mine)
+p <- Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+htmlwidgets::saveWidget(plotly::ggplotly(p, dynamicTicks = T), 
+                        file = "/home/marco/Università/Lavoro Lazio/GIF/pesci.html", selfcontained = T)
+```
+
+<iframe src="GIF/pesci.html" width="900" height="500" allowfullscreen></iframe>
+
+```{r prof_pesci}
+
+# img <- profile_def(MC_allyears)
+# image_write(image_animate(img, fps = 0.5), path = "/home/marco/Università/Lavoro Lazio/GIF/pesci.gif")
+
+```
+
+<!-- <p align="center"> -->
+<!--   <img src="GIF/pesci.gif" width="800" height="550"> -->
+<!-- </p> -->
+
+### Crostacei
+
+```{r B}
+
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = T, fau_label = "B", 
+                                      index = "KG_KM")
+Weights_list <- map(mat_entropart, colSums)
+MC_allyears <- map2(mat_entropart, Weights_list, MetaCommunity_mine)
+p <- Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+htmlwidgets::saveWidget(plotly::ggplotly(p, dynamicTicks = T), 
+                        file = "/home/marco/Università/Lavoro Lazio/GIF/crostacei.html", selfcontained = T)
+```
+
+<iframe src="GIF/crostacei.html" width="900" height="500" allowfullscreen></iframe>
+
+```{r prof_crostacei}
+# img <- profile_def(MC_allyears)
+# image_write(image_animate(img, fps = 0.5), 
+#             path = "/home/marco/Università/Lavoro Lazio/GIF/crostacei.gif")
+
+```
+
+<!-- <p align="center"> -->
+<!--   <img src="GIF/crostacei.gif" width="800" height="550"> -->
+<!-- </p> -->
+
+### Cefalopodi
+
+```{r C}
+
+mat_entropart <- create_metacommunity(data = medits_ALL, faunistic = T, fau_label = "C", 
+                                      index = "KG_KM")
+Weights_list <- map(mat_entropart, colSums)
+MC_allyears <- map2(mat_entropart, Weights_list, MetaCommunity_mine)
+p <- Tsallis_years(MC = MC_allyears, type = "Diversity", plot = T)
+htmlwidgets::saveWidget(plotly::ggplotly(p, dynamicTicks = T), 
+                        file = "/home/marco/Università/Lavoro Lazio/GIF/cefalopodi.html", selfcontained = T)
+```
+
+<iframe src="GIF/cefalopodi.html" width="900" height="500" allowfullscreen></iframe>
+
+```{r prof_cefalopodi}
+
+# img <- profile_def(MC_allyears)
+# image_write(image_animate(img, fps = 0.5), path = "/home/marco/Università/Lavoro Lazio/GIF/Cefalopodi.gif")
+
+```
+
+<!-- <p align="center"> -->
+<!--   <img src="GIF/Cefalopodi.gif" width="800" height="550"> -->
+<!-- </p> -->
+
+## Stato dell'arte
+L'obiettivo di questa prima analisi è produrre una quantita sufficiente di statistiche descrittive per avere chiara la struttura della comunità. Si ricorda che lo scopo finale è quello di andare a capire se la comunità è cambiata nel tempo sia a livello macro (la biomassa totale è cresciuta/diminuita nel tempo e nello spazio?) che a livello micro (assumendo che la biomassa sia pressochè invariata, la comunità si è tropicalizzata? Quali specie hanno sostituto quali?)
+Cosa fare nel prossimo futuro:
+
+  - Calcolare il profilo di diversità per le 3 categorie faunistiche più abbondanti 
+- Analisi multivariata col pacchetto [$\texttt{ade4}$](http://pbil.univ-lyon1.fr/members/thioulouse/book.pdf) che permette di valutare eventuali variazioni nella composizioni della comunità (e dei siti) attraverso indici di dissimilarità.
+  
+  
